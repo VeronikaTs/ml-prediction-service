@@ -115,8 +115,8 @@ jobs:
           set -e
           cd "$HOME/ml-prediction-service"
           git pull --ff-only origin main
-          docker-compose -f docker/docker-compose.yml down --remove-orphans || true
           docker-compose -f docker/docker-compose.yml pull
+          docker-compose -f docker/docker-compose.yml down --remove-orphans || true
           docker-compose -f docker/docker-compose.yml up -d
           docker ps --filter name=ml-app
           REMOTE
