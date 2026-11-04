@@ -3,3 +3,5 @@ Werkzeug==2.2.3
 psycopg2-binary==2.9.6
 numpy==1.24.4
 scikit-learn==1.2.2
+pytest==7.4.0
+flake8==6.0.0
