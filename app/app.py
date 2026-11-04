@@ -1,4 +1,3 @@
-BROKEN_LAB5 = missing_name
 import json
 import math
 import os
