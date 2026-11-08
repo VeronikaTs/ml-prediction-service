@@ -1,0 +1,72 @@
+---
+- name: Configure application server
+  hosts: app
+  become: true
+
+  tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install Docker and Docker Compose
+      ansible.builtin.apt:
+        name:
+          - docker.io
+          - docker-compose
+        state: present
+
+    - name: Ensure Docker is running and enabled
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Add student to docker group
+      ansible.builtin.user:
+        name: student
+        groups: docker
+        append: true
+
+    - name: Check project repository
+      ansible.builtin.stat:
+        path: /home/student/ml-prediction-service/.git
+      register: project_repository
+
+    - name: Require existing project repository
+      ansible.builtin.assert:
+        that:
+          - project_repository.stat.exists
+        fail_msg: "Project repository is missing"
+
+    - name: Check protected environment file
+      ansible.builtin.stat:
+        path: /home/student/ml-prediction-service/.env
+      register: application_environment
+
+    - name: Require protected environment file
+      ansible.builtin.assert:
+        that:
+          - application_environment.stat.exists
+        fail_msg: "Protected .env file is missing"
+
+    - name: Start ML service with Docker Compose
+      ansible.builtin.command:
+        cmd: docker-compose -f docker/docker-compose.yml up -d
+        chdir: /home/student/ml-prediction-service
+      become_user: student
+      register: compose_up
+      changed_when: >
+        'Creating' in (compose_up.stdout + compose_up.stderr) or
+        'Recreating' in (compose_up.stdout + compose_up.stderr) or
+        'Starting' in (compose_up.stdout + compose_up.stderr)
+
+    - name: Wait for Flask health endpoint
+      ansible.builtin.uri:
+        url: http://127.0.0.1:5000/health
+        method: GET
+        status_code: 200
+      register: health_result
+      retries: 10
+      delay: 3
+      until: health_result.status == 200

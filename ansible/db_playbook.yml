@@ -1,0 +1,93 @@
+---
+- name: Configure PostgreSQL server
+  hosts: db
+  become: true
+
+  vars_prompt:
+    - name: db_password
+      prompt: "Введите пароль PostgreSQL для роли ml_app"
+      private: true
+
+  vars:
+    db_name: ml_predictions
+    db_user: ml_app
+
+  tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install PostgreSQL packages
+      ansible.builtin.apt:
+        name:
+          - postgresql
+          - postgresql-contrib
+          - acl
+        state: present
+
+    - name: Ensure PostgreSQL is running and enabled
+      ansible.builtin.service:
+        name: postgresql
+        state: started
+        enabled: true
+
+    - name: Ensure database role exists
+      ansible.builtin.shell: |
+        if ! psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='{{ db_user }}'" | grep -q 1; then
+          psql -v ON_ERROR_STOP=1 --set=db_password="$DB_PASSWORD" <<'SQL'
+        CREATE ROLE {{ db_user }} LOGIN PASSWORD :'db_password';
+        SQL
+          echo CREATED
+        fi
+      args:
+        executable: /bin/bash
+      environment:
+        DB_PASSWORD: "{{ db_password }}"
+      become_user: postgres
+      register: role_result
+      changed_when: "'CREATED' in role_result.stdout"
+      no_log: true
+
+    - name: Ensure database exists
+      ansible.builtin.shell: |
+        if ! psql -tAc "SELECT 1 FROM pg_database WHERE datname='{{ db_name }}'" | grep -q 1; then
+          createdb -O {{ db_user }} {{ db_name }}
+          echo CREATED
+        fi
+      args:
+        executable: /bin/bash
+      become_user: postgres
+      register: database_result
+      changed_when: "'CREATED' in database_result.stdout"
+
+    - name: Copy database initialization script
+      ansible.builtin.copy:
+        src: ../db/init.sql
+        dest: /tmp/ml_prediction_init.sql
+        owner: postgres
+        group: postgres
+        mode: '0644'
+
+    - name: Check predictions table
+      ansible.builtin.shell: |
+        psql -d {{ db_name }} -tAc "SELECT to_regclass('public.predictions')"
+      become_user: postgres
+      register: predictions_table
+      changed_when: false
+
+    - name: Initialize database schema
+      ansible.builtin.command:
+        cmd: psql -v ON_ERROR_STOP=1 -d {{ db_name }} -f /tmp/ml_prediction_init.sql
+      become_user: postgres
+      when: predictions_table.stdout | trim == ""
+      changed_when: true
+
+    - name: Grant application privileges
+      ansible.builtin.shell: |
+        psql -d postgres -c "GRANT ALL PRIVILEGES ON DATABASE {{ db_name }} TO {{ db_user }};"
+        psql -d {{ db_name }} -c "GRANT USAGE, CREATE ON SCHEMA public TO {{ db_user }};"
+        psql -d {{ db_name }} -c "GRANT SELECT, INSERT, UPDATE ON TABLE predictions TO {{ db_user }};"
+        psql -d {{ db_name }} -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {{ db_user }};"
+      become_user: postgres
+      changed_when: false
