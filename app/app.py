@@ -2,9 +2,17 @@ import json
 import math
 import os
 import pickle
+import time
 
 import psycopg2
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
 
 
 app = Flask(__name__)
@@ -18,6 +26,26 @@ model = artifact["model"]
 feature_names = artifact["feature_names"]
 model_version = artifact["model_version"]
 classes = artifact["classes"]
+
+PREDICTIONS_TOTAL = Counter(
+    "ml_predictions_total",
+    "Total number of predictions",
+    ["model_version", "predicted_class"],
+)
+PREDICTION_LATENCY = Histogram(
+    "ml_prediction_latency_seconds",
+    "Prediction latency in seconds",
+)
+DB_ERRORS_TOTAL = Counter(
+    "ml_db_errors_total",
+    "Total number of database write errors",
+)
+MODEL_INFO = Gauge(
+    "ml_model_info",
+    "Information about the loaded model",
+    ["version"],
+)
+MODEL_INFO.labels(version=model_version).set(1)
 
 
 def get_db():
@@ -47,6 +75,7 @@ def health():
 
 @app.route("/predict", methods=["POST"])
 def predict():
+    started_at = time.perf_counter()
     data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
@@ -76,6 +105,12 @@ def predict():
     species = str(model.predict([numeric_features])[0])
     probabilities = model.predict_proba([numeric_features])[0]
     probability = float(max(probabilities))
+
+    PREDICTION_LATENCY.observe(time.perf_counter() - started_at)
+    PREDICTIONS_TOTAL.labels(
+        model_version=model_version,
+        predicted_class=species,
+    ).inc()
 
     input_data = {
         "features": dict(zip(feature_names, numeric_features))
@@ -111,6 +146,7 @@ def predict():
         connection.commit()
 
     except psycopg2.Error as error:
+        DB_ERRORS_TOTAL.inc()
         if connection is not None:
             connection.rollback()
 
@@ -127,6 +163,11 @@ def predict():
 
     result["prediction_id"] = prediction_id
     return jsonify(result)
+
+
+@app.route("/metrics", methods=["GET"])
+def metrics():
+    return Response(generate_latest(), content_type=CONTENT_TYPE_LATEST)
 
 
 if __name__ == "__main__":
