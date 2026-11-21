@@ -41,17 +41,17 @@ jobs:
         working-directory: app
         run: flake8 . --max-line-length=120
 
-        - name: Run prediction-service tests
-          working-directory: app
-          run: pytest -v tests/
+      - name: Run prediction-service tests
+        working-directory: app
+        run: pytest -v tests/
 
-        - name: Lint logger-service
-          working-directory: logger_service
-          run: flake8 . --max-line-length=120
+      - name: Lint logger-service
+        working-directory: logger_service
+        run: flake8 . --max-line-length=120
 
-        - name: Run logger-service tests
-          working-directory: logger_service
-          run: pytest -v tests/
+      - name: Run logger-service tests
+        working-directory: logger_service
+        run: pytest -v tests/
 
   build-and-push:
     name: Build and push
@@ -86,25 +86,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-        - name: Build and push prediction-service image
-          uses: docker/build-push-action@v6
-          with:
-            context: .
-            file: docker/Dockerfile
-            push: true
-            tags: ${{ env.PREDICTION_IMAGE }}:latest
-            labels: |
-              org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+      - name: Build and push prediction-service image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          tags: ${{ env.PREDICTION_IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
-        - name: Build and push logger-service image
-          uses: docker/build-push-action@v6
-          with:
-            context: .
-            file: docker/Dockerfile.logger
-            push: true
-            tags: ${{ env.LOGGER_IMAGE }}:latest
-            labels: |
-              org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+      - name: Build and push logger-service image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.logger
+          push: true
+          tags: ${{ env.LOGGER_IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
   deploy:
     name: Deploy to app-server
