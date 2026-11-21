@@ -1,0 +1,17 @@
+FROM python:3.10-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+COPY logger_service/requirements.txt /app/requirements.txt
+
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+COPY logger_service/app.py /app/app.py
+COPY logger_service/tests /app/tests
+
+EXPOSE 5001
+
+CMD ["python", "app.py"]

@@ -3,8 +3,9 @@ import math
 import os
 import pickle
 import time
+import urllib.error
+import urllib.request
 
-import psycopg2
 from flask import Flask, Response, jsonify, request
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
@@ -36,9 +37,9 @@ PREDICTION_LATENCY = Histogram(
     "ml_prediction_latency_seconds",
     "Prediction latency in seconds",
 )
-DB_ERRORS_TOTAL = Counter(
-    "ml_db_errors_total",
-    "Total number of database write errors",
+LOGGER_ERRORS_TOTAL = Counter(
+    "ml_logger_errors_total",
+    "Total number of logger service errors",
 )
 MODEL_INFO = Gauge(
     "ml_model_info",
@@ -48,16 +49,10 @@ MODEL_INFO = Gauge(
 MODEL_INFO.labels(version=model_version).set(1)
 
 
-def get_db():
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST", "10.10.10.2"),
-        port=os.getenv("DB_PORT", "5432"),
-        dbname=os.getenv("DB_NAME", "ml_predictions"),
-        user=os.getenv("DB_USER", "ml_app"),
-        password=os.getenv("DB_PASSWORD"),
-        sslmode=os.getenv("DB_SSLMODE", "require"),
-        connect_timeout=5,
-    )
+LOGGER_URL = os.getenv(
+    "LOGGER_URL",
+    "http://logger-service:5001/log",
+)
 
 
 @app.route("/health", methods=["GET"])
@@ -122,46 +117,38 @@ def predict():
         "model_version": model_version,
     }
 
-    connection = None
+    payload = json.dumps(
+        {
+            "input_data": input_data,
+            "prediction": result,
+            "model_version": model_version,
+        }
+    ).encode("utf-8")
 
     try:
-        connection = get_db()
+        logger_request = urllib.request.Request(
+            LOGGER_URL,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
 
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                INSERT INTO predictions
-                    (input_data, prediction, model_version)
-                VALUES (%s, %s, %s)
-                RETURNING id
-                """,
-                (
-                    json.dumps(input_data),
-                    json.dumps(result),
-                    model_version,
-                ),
+        with urllib.request.urlopen(
+            logger_request,
+            timeout=5,
+        ) as logger_response:
+            logger_result = json.loads(
+                logger_response.read().decode("utf-8")
             )
-            prediction_id = cursor.fetchone()[0]
 
-        connection.commit()
+        prediction_id = logger_result.get("prediction_id")
+        if prediction_id is not None:
+            result["prediction_id"] = prediction_id
 
-    except psycopg2.Error as error:
-        DB_ERRORS_TOTAL.inc()
-        if connection is not None:
-            connection.rollback()
+    except (urllib.error.URLError, TimeoutError, ValueError) as error:
+        LOGGER_ERRORS_TOTAL.inc()
+        app.logger.error("Logger service error: %s", error)
 
-        return jsonify(
-            {
-                "error": "Database operation failed",
-                "details": str(error).strip(),
-            }
-        ), 503
-
-    finally:
-        if connection is not None:
-            connection.close()
-
-    result["prediction_id"] = prediction_id
     return jsonify(result)
 
 

@@ -1,14 +1,41 @@
 version: "3.8"
 
 services:
-  app:
+  prediction-service:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: ghcr.io/veronikats/ml-prediction-service:latest
-    container_name: ml-app
+    image: ghcr.io/veronikats/ml-prediction-service/prediction-service:latest
+    container_name: prediction-service
     ports:
       - "5000:5000"
+    environment:
+      MODEL_PATH: /model/model.pkl
+      LOGGER_URL: http://logger-service:5001/log
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      - logger-service
+    networks:
+      - monitoring
+
+  logger-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.logger
+    image: ghcr.io/veronikats/ml-prediction-service/logger-service:latest
+    container_name: logger-service
+    ports:
+      - "5001:5001"
     env_file:
       - ../.env
     restart: unless-stopped
@@ -17,7 +44,7 @@ services:
         - "CMD"
         - "python"
         - "-c"
-        - "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:5001/health', timeout=3)"
       interval: 30s
       timeout: 5s
       retries: 3
@@ -57,7 +84,8 @@ services:
       - "--web.enable-lifecycle"
     restart: unless-stopped
     depends_on:
-      - app
+      - prediction-service
+      - logger-service
       - node-exporter
       - alertmanager
     networks:

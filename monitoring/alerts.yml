@@ -2,14 +2,23 @@ groups:
   - name: ml-service-alerts
     interval: 30s
     rules:
-      - alert: MLServiceDown
-        expr: up{job="ml-app"} == 0
+      - alert: PredictionServiceDown
+        expr: up{job="prediction-service"} == 0
         for: 1m
         labels:
           severity: critical
         annotations:
-          summary: "ML service is unavailable"
-          description: "Prometheus cannot scrape ml-app for more than one minute."
+          summary: "Prediction service is unavailable"
+          description: "Prometheus cannot scrape prediction-service for more than one minute."
+
+      - alert: LoggerServiceDown
+        expr: up{job="logger-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Logger service is unavailable"
+          description: "Prometheus cannot scrape logger-service for more than one minute."
 
       - alert: HighPredictionLatency
         expr: histogram_quantile(0.95, rate(ml_prediction_latency_seconds_bucket[5m])) > 1
@@ -20,14 +29,14 @@ groups:
           summary: "High prediction latency"
           description: "The 95th percentile prediction latency is above one second."
 
-      - alert: DBPredictionErrors
-        expr: increase(ml_db_errors_total[5m]) > 3
+      - alert: LoggerErrors
+        expr: increase(logger_db_errors_total[5m]) > 3
         for: 1m
         labels:
           severity: warning
         annotations:
-          summary: "Database write errors"
-          description: "More than three database write errors occurred in five minutes."
+          summary: "Logger database write errors"
+          description: "More than three logger database errors occurred in five minutes."
 
       - alert: NoPredictionsReceived
         expr: rate(ml_predictions_total[10m]) == 0
@@ -36,4 +45,4 @@ groups:
           severity: warning
         annotations:
           summary: "No predictions received"
-          description: "The service has received no prediction requests for ten minutes."
+          description: "The prediction service has received no requests for ten minutes."

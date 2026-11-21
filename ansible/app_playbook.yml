@@ -50,9 +50,18 @@
           - application_environment.stat.exists
         fail_msg: "Protected .env file is missing"
 
-    - name: Start ML service with Docker Compose
+    - name: Pull latest microservice images
       ansible.builtin.command:
-        cmd: docker-compose -f docker/docker-compose.yml up -d
+        cmd: docker-compose -f docker/docker-compose.yml pull
+        chdir: /home/student/ml-prediction-service
+      become_user: student
+      register: compose_pull
+      changed_when: >
+        'Pulling' in (compose_pull.stdout + compose_pull.stderr)
+
+    - name: Restart microservice stack
+      ansible.builtin.command:
+        cmd: docker-compose -f docker/docker-compose.yml up -d --build
         chdir: /home/student/ml-prediction-service
       become_user: student
       register: compose_up
@@ -61,7 +70,7 @@
         'Recreating' in (compose_up.stdout + compose_up.stderr) or
         'Starting' in (compose_up.stdout + compose_up.stderr)
 
-    - name: Wait for Flask health endpoint
+    - name: Wait for prediction-service health endpoint
       ansible.builtin.uri:
         url: http://127.0.0.1:5000/health
         method: GET
@@ -70,3 +79,13 @@
       retries: 10
       delay: 3
       until: health_result.status == 200
+
+    - name: Wait for logger-service health endpoint
+      ansible.builtin.uri:
+        url: http://127.0.0.1:5001/health
+        method: GET
+        status_code: 200
+      register: logger_health_result
+      retries: 10
+      delay: 3
+      until: logger_health_result.status == 200
