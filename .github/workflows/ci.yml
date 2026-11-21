@@ -114,9 +114,9 @@ jobs:
     steps:
       - name: Log in to GHCR for deployment
         run: |
-          printf '%s' "${{ secrets.REGISTRY_TOKEN }}" |
+          printf '%s' "${{ secrets.GITHUB_TOKEN }}" |
             docker login ghcr.io \
-              --username "${{ secrets.REGISTRY_USER }}" \
+              --username "${{ github.actor }}" \
               --password-stdin
 
       - name: Configure SSH
